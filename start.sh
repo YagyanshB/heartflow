@@ -8,13 +8,13 @@ echo ""
 echo "Starting backend..."
 cd backend
 if [ ! -d "venv" ]; then
-  python -m venv venv
+  python3 -m venv venv
 fi
 source venv/bin/activate
 pip install -r requirements.txt -q
 if [ ! -f ".env" ]; then
   cp .env.example .env
-  echo "⚠️  Created backend/.env — add your ANTHROPIC_API_KEY"
+  echo "⚠️  Created backend/.env — add your OPENAI_API_KEY"
 fi
 uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!

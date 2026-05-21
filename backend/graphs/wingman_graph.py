@@ -1,8 +1,8 @@
-import anthropic
 import json
 import os
 from typing import TypedDict, List, Optional, Any
 from langgraph.graph import StateGraph, END
+from openai import OpenAI
 from prompts.system_prompts import (
     TEXT_EXTRACTION_PROMPT,
     SENTIMENT_ANALYSIS_PROMPT,
@@ -12,8 +12,8 @@ from prompts.system_prompts import (
     DATE_CURATOR_PROMPT,
 )
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "gpt-4o"
 
 
 class WingmanState(TypedDict):
@@ -30,17 +30,20 @@ class WingmanState(TypedDict):
     error: Optional[str]
 
 
-def _call_claude(system: str, user_content: Any) -> str:
+def _call_openai(system: str, user_content: Any) -> str:
     if isinstance(user_content, str):
         user_content = [{"type": "text", "text": user_content}]
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=2048,
-        system=system,
-        messages=[{"role": "user", "content": user_content}],
+        response_format={"type": "json_object"} if system != TEXT_EXTRACTION_PROMPT else None,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_content},
+        ],
     )
-    return response.content[0].text
+    return response.choices[0].message.content
 
 
 def _parse_json(raw: str) -> dict:
@@ -53,15 +56,17 @@ def _parse_json(raw: str) -> dict:
 
 
 def extract_text_node(state: WingmanState) -> WingmanState:
-    """Extract text from screenshots if provided."""
+    """Extract text from screenshots using GPT-4o vision."""
     extracted = ""
 
     if state["images"]:
-        content = [{"type": "text", "text": "Please extract all conversation text from these screenshots."}]
+        content: List[dict] = [
+            {"type": "text", "text": "Please extract all conversation text from these screenshots."}
+        ]
         content.extend(state["images"])
         try:
-            extracted = _call_claude(TEXT_EXTRACTION_PROMPT, content)
-        except Exception as e:
+            extracted = _call_openai(TEXT_EXTRACTION_PROMPT, content)
+        except Exception:
             extracted = ""
 
     parts = []
@@ -76,9 +81,8 @@ def extract_text_node(state: WingmanState) -> WingmanState:
 
 
 def sentiment_node(state: WingmanState) -> WingmanState:
-    """Analyze sentiment, engagement and emotional tone."""
     try:
-        raw = _call_claude(SENTIMENT_ANALYSIS_PROMPT, state["combined_input"])
+        raw = _call_openai(SENTIMENT_ANALYSIS_PROMPT, state["combined_input"])
         data = _parse_json(raw)
     except Exception as e:
         data = {
@@ -94,9 +98,8 @@ def sentiment_node(state: WingmanState) -> WingmanState:
 
 
 def interests_node(state: WingmanState) -> WingmanState:
-    """Extract interests, shared topics, and future hooks."""
     try:
-        raw = _call_claude(INTEREST_EXTRACTION_PROMPT, state["combined_input"])
+        raw = _call_openai(INTEREST_EXTRACTION_PROMPT, state["combined_input"])
         data = _parse_json(raw)
     except Exception as e:
         data = {
@@ -112,7 +115,6 @@ def interests_node(state: WingmanState) -> WingmanState:
 
 
 def intent_node(state: WingmanState) -> WingmanState:
-    """Score romantic intent and identify green/red flags."""
     enriched = f"""
 {state['combined_input']}
 
@@ -123,7 +125,7 @@ def intent_node(state: WingmanState) -> WingmanState:
 {json.dumps(state['interests_data'], indent=2)}
 """
     try:
-        raw = _call_claude(INTENT_ANALYSIS_PROMPT, enriched)
+        raw = _call_openai(INTENT_ANALYSIS_PROMPT, enriched)
         data = _parse_json(raw)
     except Exception as e:
         data = {
@@ -141,7 +143,6 @@ def intent_node(state: WingmanState) -> WingmanState:
 
 
 def next_steps_node(state: WingmanState) -> WingmanState:
-    """Generate personalized next step recommendations."""
     enriched = f"""
 {state['combined_input']}
 
@@ -151,7 +152,7 @@ Interests: {json.dumps(state['interests_data'], indent=2)}
 Intent: {json.dumps(state['intent_data'], indent=2)}
 """
     try:
-        raw = _call_claude(NEXT_STEPS_PROMPT, enriched)
+        raw = _call_openai(NEXT_STEPS_PROMPT, enriched)
         data = _parse_json(raw)
     except Exception as e:
         data = {
@@ -165,7 +166,6 @@ Intent: {json.dumps(state['intent_data'], indent=2)}
 
 
 def date_curator_node(state: WingmanState) -> WingmanState:
-    """Curate personalized date ideas based on interests and context."""
     enriched = f"""
 {state['combined_input']}
 
@@ -178,7 +178,7 @@ Invite Ready: {state['intent_data'].get('invite_ready', False)}
 Stage: {state['intent_data'].get('stage', 'unclear')}
 """
     try:
-        raw = _call_claude(DATE_CURATOR_PROMPT, enriched)
+        raw = _call_openai(DATE_CURATOR_PROMPT, enriched)
         data = _parse_json(raw)
     except Exception as e:
         data = {

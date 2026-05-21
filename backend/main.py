@@ -38,11 +38,9 @@ async def analyze_conversation(
         b64 = base64.standard_b64encode(content).decode()
         media_type = screenshot.content_type or "image/jpeg"
         images.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": b64,
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{media_type};base64,{b64}",
             },
         })
 
